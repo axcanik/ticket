@@ -667,8 +667,7 @@ class TicketBot(commands.Bot):
             print(f"[AutoMod Debug] is_staff: {is_staff}", flush=True)
             print(f"[AutoMod Debug] automod_enabled: {guild_config.get('automod_enabled')}", flush=True)
             print(f"[AutoMod Debug] automod_ai_enabled: {guild_config.get('automod_ai_enabled')}", flush=True)
-            print(f"[AutoMod Debug] ai_client active: {ai_client is not None}", flush=True)
-            print(f"[AutoMod Debug] groq_client active: {groq_client is not None}", flush=True)
+            print(f"[AutoMod Debug] scaleway_client active: {scaleway_client is not None}", flush=True)
             print(f"[AutoMod Debug] Attachments count: {len(message.attachments)}", flush=True)
 
         if message.guild and not is_staff and guild_config.get("automod_enabled"):
@@ -3386,8 +3385,20 @@ async def trigger_panel_send(guild_id: int, channel_id: int):
 
     await channel.send(embed=embed, view=TicketTypeSelectView())
 
-def handle_panel_request(guild_id: int, channel_id: int):
-    asyncio.run_coroutine_threadsafe(trigger_panel_send(guild_id, channel_id), bot.loop)
+async def start_bot_with_retry():
+    while True:
+        try:
+            await bot.start(TOKEN)
+        except discord.HTTPException as e:
+            if e.status == 429:
+                print(f"⚠️ [Discord Rate Limit] Discord IP temporarily blocked (429). Retrying in 45 seconds... ({e})")
+                await asyncio.sleep(45)
+            else:
+                print(f"❌ [Discord HTTP Error] {e}. Retrying in 20 seconds...")
+                await asyncio.sleep(20)
+        except Exception as e:
+            print(f"❌ [Bot Error] Unexpected error: {e}. Retrying in 15 seconds...")
+            await asyncio.sleep(15)
 
 if __name__ == "__main__":
     if not TOKEN:
@@ -3395,4 +3406,7 @@ if __name__ == "__main__":
     else:
         set_panel_callback(handle_panel_request)
         run_web(bot)
-        bot.run(TOKEN)
+        try:
+            asyncio.run(start_bot_with_retry())
+        except (KeyboardInterrupt, SystemExit):
+            print("Bot shutdown gracefully.")
