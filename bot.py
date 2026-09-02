@@ -3385,6 +3385,9 @@ async def trigger_panel_send(guild_id: int, channel_id: int):
 
     await channel.send(embed=embed, view=TicketTypeSelectView())
 
+def handle_panel_request(guild_id: int, channel_id: int):
+    asyncio.run_coroutine_threadsafe(trigger_panel_send(guild_id, channel_id), bot.loop)
+
 async def start_bot_with_retry():
     while True:
         try:
