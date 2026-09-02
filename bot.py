@@ -717,10 +717,15 @@ class TicketBot(commands.Bot):
                             {"role": "system", "content": sys_prompt},
                             {"role": "user", "content": message.content}
                         ],
-                        max_tokens=5,
+                        max_tokens=32768,
                         temperature=0.0
                     )
-                    ai_response = completion.choices[0].message.content.strip().upper()
+                    choice_msg = completion.choices[0].message
+                    raw_content = choice_msg.content or ""
+                    if not raw_content and hasattr(choice_msg, "reasoning_content") and choice_msg.reasoning_content:
+                        raw_content = choice_msg.reasoning_content
+                    
+                    ai_response = str(raw_content).strip().upper()
                     print(f"[AutoMod Debug] AI Toxicity Response: {ai_response}", flush=True)
                     
                     # Clean up response to get exact decision, removing thinking process if present
@@ -787,7 +792,7 @@ class TicketBot(commands.Bot):
                                         }
                                     ],
                                     model="deepseek-v4-flash-0731",
-                                    max_tokens=10
+                                    max_tokens=32768
                                 )
                                 ai_response = chat_completion.choices[0].message.content.strip().upper()
                             except Exception as vision_err:
@@ -963,8 +968,8 @@ class TicketBot(commands.Bot):
                 embed = discord.Embed(title="🌍 International Payment", description="Please wait a moment! A staff member will be here shortly to guide you through our international payment options.", color=discord.Color.teal())
                 await message.channel.send(embed=embed)
                 
-            # 2. Premium AI Agent
-            elif guild_config.get("ai_support_enabled") and not ticket_data.get("ai_disabled") and not message.author.bot and (groq_client or ai_client):
+            # 2. Premium AI Agent (Scaleway DeepSeek)
+            elif guild_config.get("ai_support_enabled") and not ticket_data.get("ai_disabled") and not message.author.bot and scaleway_client:
                 async with message.channel.typing():
                     try:
                         history_msgs = [msg async for msg in message.channel.history(limit=10, oldest_first=False)]
@@ -990,36 +995,37 @@ Price: 30 Days = $8 / ₹800 / 800 BDT, Permanent = $25 / ₹2500 / 2500 BDT.
 Reseller Features: Full API Dashboard Access, full OBB + Custom EXE Service, Web Access or Discord Bot Setup, Seller/Reseller Support.
 Servers Supported: India, Bangladesh, Pakistan, Brazil, US, EU, Russia, Indonesia, Malaysia, Singapore, Vietnam, Mexico, Taiwan, Thailand, Philippines, Korea, Japan, Australia, MENA, Africa, NZ, Canada, Spain, KSA, UAE, Italy, France, Germany, Netherlands, Sweden, Norway, Finland, Poland, Turkey, UK, Argentina, Chile, Colombia, Peru, Venezuela, Ukraine, Belgium, Czech, Hungary.
 """
-                        system_prompt = f"You are the official Support AI Agent for 'Anik X Cheats'. Your job is to assist the user in their ticket. IMPORTANT: Always reply in the same language the user is speaking. Do not repeat what the user says. Be concise and helpful. If they ask for crypto, tell them to type 'crypto'. Use the following product information to answer user queries:\n{product_knowledge}"
+                        system_prompt = (
+                            "You are the official Support AI Agent for 'Anik X Cheats'. Your job is to assist the user in their ticket.\n"
+                            "IMPORTANT Guidelines:\n"
+                            "1. Always reply in the exact language the user is speaking (Bengali, Banglish, Hindi, or English).\n"
+                            "2. Be concise, friendly, and helpful.\n"
+                            "3. If they ask how to pay, tell them to type 'bkash', 'binance', or 'crypto' to get payment details immediately.\n"
+                            f"Product Info:\n{product_knowledge}"
+                        )
                         
-                        if groq_client:
-                            groq_msgs = [{"role": "system", "content": system_prompt}]
-                            for m in history_msgs:
-                                role = "assistant" if m.author == self.user else "user"
-                                groq_msgs.append({"role": role, "content": m.content})
-                                
-                            chat_completion = await groq_client.chat.completions.create(
-                                messages=groq_msgs,
-                                model="llama-3.3-70b-versatile",
-                            )
-                            response_text = chat_completion.choices[0].message.content
-                        else:
-                            conversation = ""
-                            for m in history_msgs:
-                                sender = "Support Agent (You)" if m.author == self.user else f"User ({m.author.name})"
-                                conversation += f"{sender}: {m.content}\n"
-                            prompt = system_prompt + "\n\nRecent conversation:\n" + conversation + "\nAgent Reply:"
-                            response = await ai_client.aio.models.generate_content(
-                                model='gemini-2.0-flash',
-                                contents=prompt
-                            )
-                            response_text = response.text
+                        ai_msgs = [{"role": "system", "content": system_prompt}]
+                        for m in history_msgs:
+                            role = "assistant" if m.author == self.user else "user"
+                            ai_msgs.append({"role": role, "content": m.content})
+                            
+                        chat_completion = await scaleway_client.chat.completions.create(
+                            messages=ai_msgs,
+                            model="deepseek-v4-flash-0731",
+                            max_tokens=32768,
+                            temperature=0.3
+                        )
+                        choice_msg = chat_completion.choices[0].message
+                        response_text = choice_msg.content or ""
+                        if not response_text and hasattr(choice_msg, "reasoning_content") and choice_msg.reasoning_content:
+                            response_text = choice_msg.reasoning_content
                             
                         if response_text:
+                            if "</think>" in response_text:
+                                response_text = response_text.split("</think>")[-1].strip()
                             await message.channel.send(response_text)
                     except Exception as e:
-                        print(f"AI Error: {e}")
-                        await message.channel.send(f"⚠️ AI Error: {str(e)}")
+                        print(f"Ticket AI Error: {e}")
 
         await self.process_commands(message)
 
