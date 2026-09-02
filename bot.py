@@ -969,7 +969,7 @@ class TicketBot(commands.Bot):
                 await message.channel.send(embed=embed)
                 
             # 2. Premium AI Agent (Scaleway DeepSeek)
-            elif guild_config.get("ai_support_enabled") and not ticket_data.get("ai_disabled") and not message.author.bot and scaleway_client:
+            elif not ticket_data.get("ai_disabled") and not message.author.bot and scaleway_client:
                 async with message.channel.typing():
                     try:
                         history_msgs = [msg async for msg in message.channel.history(limit=10, oldest_first=False)]
@@ -1256,6 +1256,7 @@ async def create_ticket(interaction: discord.Interaction, ticket_type: str):
     embed.timestamp = discord.utils.utcnow()
 
     await channel.send(
+        content=f"👋 {user.mention} **Welcome to your support ticket!**",
         embed=embed,
         view=TicketActionView(staff_role_id=int(staff_role_id))
     )
@@ -1265,38 +1266,33 @@ async def create_ticket(interaction: discord.Interaction, ticket_type: str):
         ephemeral=True
     )
 
-    if guild_config.get("ai_support_enabled") and (groq_client or ai_client):
+    if scaleway_client:
         async def send_ai_greeting():
-            await asyncio.sleep(2)
+            await asyncio.sleep(1)
             async with channel.typing():
                 try:
-                    product_knowledge = """
-# BASIC PANEL ALL SERVER SAFE!!!
-Functions: AIMBOT EXTERNAL, AIMBOT ON/OFF. Locations: CHAMS MENU, STREAM MODE.
-Price: 1 MONTH = 700 INR / 8$, PERMANENT = 2000 INR / 24$.
-
-# AXC PREMIUM PANEL V3.2
-Functions: AIMBOT HEAD, ON/OFF (IN GAME), SNIPER SCOPE/MACRO/AIM/LOCATIONS, AWM/M82B SWITCH, SPEED HACK, WALL HACK, GLITCH FIRE, CAMERA RIGHT, FAST LANDING, VISION 7X.
-Price: 7 DAYS = 400 INR / 5$, 15 DAYS = 800 INR / 10$, 1 MONTH = 1000 INR / 12$, PERMANENT = 3000 INR / 35$.
-
-# Premium UID Emulator Bypass
-Features: Same applying process, India + All other servers supported, 101% Safe & Stable.
-Price: 30 Days = $8 / ₹800 / 800 BDT, Permanent = $25 / ₹2500 / 2500 BDT.
-"""
-                    sys_prompt = f"You are the official Support AI for 'Anik X Cheats'. The user '{user.name}' just created a '{ticket_type}' ticket. Send a short, friendly greeting. Do not repeat the full price list or details since they are already displayed in the message embed above. Just briefly ask how you can help them buy or resolve their issues today. Keep it extremely short, friendly, and use emojis."
-                    
-                    if groq_client:
-                        chat_completion = await groq_client.chat.completions.create(
-                            messages=[{"role": "system", "content": sys_prompt}],
-                            model="llama-3.3-70b-versatile",
-                        )
-                        response_text = chat_completion.choices[0].message.content
-                    else:
-                        response = await ai_client.aio.models.generate_content(model='gemini-2.0-flash', contents=sys_prompt)
-                        response_text = response.text
+                    sys_prompt = (
+                        f"You are the friendly AI Support Agent for 'Anik X Cheats'.\n"
+                        f"The user '{user.display_name}' just opened a '{ticket_type}' ticket.\n"
+                        f"Send a warm, welcoming, and helpful greeting in the channel. Mention that staff and AI are here to help.\n"
+                        f"Ask how you can assist them today (purchase, panel questions, emulator setup, or key help).\n"
+                        f"Keep it short (2-3 sentences), enthusiastic, and use emojis."
+                    )
+                    completion = await scaleway_client.chat.completions.create(
+                        messages=[{"role": "system", "content": sys_prompt}],
+                        model="deepseek-v4-flash-0731",
+                        max_tokens=32768,
+                        temperature=0.4
+                    )
+                    choice_msg = completion.choices[0].message
+                    response_text = choice_msg.content or ""
+                    if not response_text and hasattr(choice_msg, "reasoning_content") and choice_msg.reasoning_content:
+                        response_text = choice_msg.reasoning_content
                         
                     if response_text:
-                        await channel.send(response_text)
+                        if "</think>" in response_text:
+                            response_text = response_text.split("</think>")[-1].strip()
+                        await channel.send(f"🤖 **AI Support:** {response_text}")
                 except Exception as e:
                     print(f"AI Greeting Error: {e}")
                     
